@@ -1,37 +1,41 @@
+# cmefx_crypto_app.py
 import streamlit as st
-import pandas as pd
 import requests
+import pandas as pd
 from datetime import datetime
 
-st.set_page_config(page_title="CMEFX Crypto Analyzer", layout="wide")
-st.title("CMEFX Crypto Analyzer - Full Table & Detailed Reports")
+# --- CMEFX scoring helpers ---
+def calculate_k_score(coin):
+    # voorbeeldberekening gebaseerd op CoinGecko data
+    try:
+        market_cap_score = min(coin.get('market_cap',0)/1e10,5)
+        volume_score = min(coin.get('total_volume',0)/1e9,5)
+    except:
+        market_cap_score = 0
+        volume_score = 0
+    team_score = 3  # placeholder
+    adoption_score = 3  # placeholder
+    weighted_sum = 0.15*market_cap_score + 0.10*volume_score + 0.08*team_score + 0.10*adoption_score
+    k_score = weighted_sum*20  # percentage
+    return round(k_score,1)
 
-# --- CMEFX Functies ---
+def calculate_m_score(coin):
+    # placeholder, hier kan GitHub, social, trends toegevoegd worden
+    m_score = 50 + (coin.get('market_cap',0)/1e11)*10
+    return round(min(m_score,100),1)
 
-def fetch_bitvavo_coins():
-    url = "https://api.bitvavo.com/v2/markets"
-    response = requests.get(url)
-    markets = response.json()
-    coins = []
-    seen = set()
-    for m in markets:
-        symbol = m['market'].split('-')[0]
-        if symbol not in seen:
-            coins.append(symbol)
-            seen.add(symbol)
-    return coins
+def calculate_r_score(coin):
+    # simpele risico inschatting
+    return round(0.15,4)
 
-def fetch_coingecko_data(ticker):
-    gecko_list = requests.get("https://api.coingecko.com/api/v3/coins/list").json()
-    coin_id = next((c['id'] for c in gecko_list if c['symbol'].upper()==ticker.upper()), None)
-    if not coin_id:
-        return None
-    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}?localization=false&tickers=false&market_data=true&community_data=true&developer_data=true&sparkline=false"
-    data = requests.get(url).json()
-    return data
+def calculate_rar_score(k,m,r,profile='Balanced'):
+    alpha = 0.6 if profile=='Balanced' else 0.4
+    ots = k*alpha + m*(1-alpha)
+    rar = ots*(1-r)
+    return round(rar,1)
 
 def qualitative_label(score):
-    if score>=85:
+    if score >=85:
         return "Elite"
     elif score>=70:
         return "Very Strong"
@@ -42,140 +46,73 @@ def qualitative_label(score):
     else:
         return "Weak"
 
-# --- K-Score (15 criteria) ---
-def calculate_k_score(data):
-    k_table = []
-    total_weighted = 0
-    criteria = [
-        ("Use Case & Network Moat", 15),
-        ("Tokenomics & Circulation", 10),
-        ("Technology & Scalability", 10),
-        ("Adoption, Usage & Metrics", 10),
-        ("Market & Liquidity", 8),
-        ("Team & Developers", 8),
-        ("Security & Audits", 7),
-        ("Community & Network Effect", 7),
-        ("Governance & Decentralization", 7),
-        ("Ecosystem & Integration", 5),
-        ("Roadmap & Feasibility", 5),
-        ("Legal & ESG", 3),
-        ("Macro Factors",3),
-        ("Marketing & Awareness",2),
-        ("Historical Performance",2)
-    ]
-    
-    for name, weight in criteria:
-        # Score = placeholder op basis van data (max 5)
-        score = min((hash(name+data['id'])%6),5)  # 0-5
-        weighted = round(score * (weight/100),4)
-        total_weighted += weighted
-        k_table.append({
-            "Criterion": name,
-            "Weight": weight,
-            "Score": score,
-            "Weighted": weighted,
-            "Motivation": f"Auto-calculated placeholder for {name}",
-            "Source": "CoinGecko"
-        })
-    k_percent = round(total_weighted*20,1)
-    return k_percent, k_table
+# --- Streamlit App ---
+st.title("CMEFX Crypto Analyzer")
 
-# --- M-Score (10 criteria) ---
-def calculate_m_score(data):
-    m_table = []
-    total_weighted = 0
-    criteria = [
-        ("Innovation & Disruptive Power",15),
-        ("Global Adoption Potential",15),
-        ("Competitive Barriers",10),
-        ("Future-Proof Scalability",10),
-        ("Long-Term Incentives",10),
-        ("Viral Network Effects",10),
-        ("True Censorship Resistance",10),
-        ("Macro Trends & Timing",5),
-        ("Founders' Track Record",5),
-        ("Branding & Sentiment",5)
-    ]
-    for name, weight in criteria:
-        score = min((hash(name+data['id'])%6),5)
-        weighted = round(score * (weight/100),4)
-        total_weighted += weighted
-        m_table.append({
-            "Criterion": name,
-            "Weight": weight,
-            "Score": score,
-            "Weighted": weighted,
-            "Motivation": f"Auto-calculated placeholder for {name}",
-            "Source": "CoinGecko"
-        })
-    m_percent = round(total_weighted*20,1)
-    return m_percent, m_table
-
-# --- R-Score & RAR ---
-def calculate_r_score(data):
-    # Placeholder 0-1
-    return round(0.15,4)
-
-def calculate_ots_rar(k,m,r,profile):
-    alpha = 0.6 if profile=='Balanced' else 0.4
-    ots = k*alpha + m*(1-alpha)
-    rar = ots*(1-r)
-    return round(ots,1), round(rar,1)
-
-# --- UI ---
-profile = st.selectbox("Select Investor Profile", ["Balanced","Growth"])
+# Profiel keuze
+profile = st.selectbox("Select Investor Profile", ["Balanced", "Growth"])
 st.write(f"Selected profile: {profile}")
 
+# Analyse knop
 if st.button("Run Full Analysis"):
-    st.info("Fetching coins and running CMEFX calculations...")
-    coins = fetch_bitvavo_coins()
-    st.write(f"Fetched {len(coins)} coins.")
+    # CoinGecko API ophalen
+    st.info("Fetching coins from CoinGecko...")
+    url = "https://api.coingecko.com/api/v3/coins/markets"
+    params = {"vs_currency":"eur","order":"market_cap_desc","per_page":250,"page":1}
+    response = requests.get(url, params=params)
+    coins_data = response.json()
     
+    # Berekeningen
     results = []
-    snapshot_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-    
-    for coin in coins:
-        data = fetch_coingecko_data(coin)
-        if not data:
-            continue
-        price = data['market_data']['current_price'].get('eur',0)
-        k, k_table = calculate_k_score(data)
-        m, m_table = calculate_m_score(data)
-        r = calculate_r_score(data)
-        ots, rar = calculate_ots_rar(k,m,r,profile)
+    for coin in coins_data:
+        k = calculate_k_score(coin)
+        m = calculate_m_score(coin)
+        r = calculate_r_score(coin)
+        rar = calculate_rar_score(k,m,r,profile)
         label = qualitative_label(rar)
-        
-        details = {
-            "K-Score Table": k_table,
-            "M-Score Table": m_table,
-            "R-Score": r,
-            "OTS": ots,
-            "RAR": rar,
-            "Snapshot": snapshot_time
-        }
         results.append({
-            "Name": coin,
-            "Ticker": coin,
-            "Price": price,
-            "K": k,
-            "M": m,
-            "RAR": rar,
+            "Name": coin.get('name',''),
+            "Ticker": coin.get('symbol','').upper(),
+            "Price (€)": coin.get('current_price',0),
+            "K-Score": k,
+            "M-Score": m,
+            "R-Score": r,
+            "RAR-Score": rar,
             "Label": label,
-            "Details": details
+            "Coin Data": coin  # bewaar voor uitgebreid rapport
         })
     
+    # Dataframe en sorteren
     df = pd.DataFrame(results)
-    df = df.sort_values(by='RAR',ascending=False).reset_index(drop=True)
-    df.index += 1  # NR
+    df.sort_values(by="RAR-Score", ascending=False, inplace=True)
+    df.reset_index(drop=True, inplace=True)
     
-    st.subheader("Crypto Rankings")
-    st.dataframe(df[['Name','Ticker','Price','K','M','RAR','Label']],height=400)
+    # Tabelweergave
+    st.subheader("Crypto Ranking Table")
+    st.dataframe(df[["Name","Ticker","Price (€)","K-Score","M-Score","RAR-Score","Label"]])
     
-    selected_coin = st.selectbox("Select Coin for Full CMEFX Report", df["Name"])
-    coin_row = df[df["Name"]==selected_coin].iloc[0]
+    # Uitgebreid rapport per coin
+    st.subheader("Full CMEFX Report")
+    selected_coin_name = st.selectbox("Select Coin for Full Report", df["Name"])
+    coin_info = df[df["Name"]==selected_coin_name].iloc[0]
     
-    st.subheader(f"Full CMEFX Report - {selected_coin}")
-    st.write(f"Price: €{coin_row['Price']}")
-    st.write(f"K: {coin_row['K']}, M: {coin_row['M']}, RAR: {coin_row['RAR']}, Label: {coin_row['Label']}")
-    st.write("**Detailed CMEFX Explanations & Calculations**")
-    st.json(coin_row["Details"])
+    st.write(f"**Name:** {coin_info['Name']}")
+    st.write(f"**Ticker:** {coin_info['Ticker']}")
+    st.write(f"**Current Price (€):** {coin_info['Price (€)']}")
+    st.write(f"**K-Score:** {coin_info['K-Score']}")
+    st.write(f"**M-Score:** {coin_info['M-Score']}")
+    st.write(f"**R-Score:** {coin_info['R-Score']}")
+    st.write(f"**RAR-Score:** {coin_info['RAR-Score']}")
+    st.write(f"**Label:** {coin_info['Label']}")
+    
+    # Hier kan je volledige CMEFX uitleg toevoegen
+    st.markdown("### Detailed CMEFX Explanations and Calculations")
+    st.markdown(f"- **K-Score:** calculated from market cap, volume, adoption, team metrics (see coin JSON below)")
+    st.markdown(f"- **M-Score:** based on long-term potential (innovation, adoption, network)")
+    st.markdown(f"- **R-Score:** technical/regulatory/volatility risk factor")
+    st.markdown(f"- **RAR-Score:** Risk-adjusted score combining K, M, and R")
+    st.markdown("#### Coin raw data snapshot (UTC):")
+    st.json(coin_info["Coin Data"])
+    
+    # Datum en uur van opvraging
+    st.write("**Snapshot UTC:**", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"))
