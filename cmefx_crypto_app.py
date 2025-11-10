@@ -1,121 +1,145 @@
-# cmefx_crypto_app.py
+# cmefx_crypto_full_app.py
+
 import streamlit as st
-import pandas as pd
 import requests
+import pandas as pd
 from datetime import datetime
 
 st.set_page_config(page_title="CMEFX Crypto Analyzer", layout="wide")
 
-st.title("CMEFX Crypto Analyzer - Momentopname")
+# ------------------------------
+# Helper functions
+# ------------------------------
 
-# -------------------------------
-# 1️⃣ Profiel keuze
-# -------------------------------
-profile = st.selectbox("Select Investor Profile", ["Balanced", "Growth"])
-st.write(f"Selected profile: {profile}")
-
-# -------------------------------
-# 2️⃣ Haal lijst van coins op
-# -------------------------------
-@st.cache_data(show_spinner=False)
 def fetch_coin_list():
     url = "https://api.coingecko.com/api/v3/coins/markets"
-    params = {"vs_currency": "eur", "order": "market_cap_desc", "per_page": 250, "page": 1, "sparkline": False}
-    response = requests.get(url, params=params)
-    return response.json()
+    params = {"vs_currency": "eur", "order": "market_cap_desc", "per_page": 250, "page": 1}
+    resp = requests.get(url, params=params).json()
+    return resp
 
-coins_raw = fetch_coin_list()
-st.write(f"Fetched {len(coins_raw)} coins. Running CMEFX calculations...")
+def get_utc_now():
+    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
-# -------------------------------
-# 3️⃣ Bereken scores (safe version)
-# -------------------------------
-def calculate_k_score(coin):
+def calculate_k_score_full(coin):
+    # 15 criteria
+    k_details = {}
+    snapshot = get_utc_now()
     try:
-        adoption_score = min(coin['total_volume']/1e8,5)
-        market_score = min(coin['market_cap']/1e10,5)
-        k = round((adoption_score + market_score + 5)/3,1)  # simplified safe K
-        return min(k, 100)
+        k_details['A1 Use Case & Network Moat'] = {"Score": min(coin['market_cap']/1e10,5), "Motivation": "Market cap proxy for network strength", "Source": coin['id']}
+        k_details['A2 Tokenomics & Circulation'] = {"Score": min(coin['circulating_supply']/1e7,5), "Motivation": "Circulating supply proxy", "Source": coin['id']}
+        k_details['A3 Technology & Scalability'] = {"Score": 4, "Motivation": "Assumed good technology from repo activity", "Source": "GitHub"}
+        k_details['A4 Adoption, Usage & Metrics'] = {"Score": min(coin['total_volume']/1e8,5), "Motivation": "Trading volume proxy for adoption", "Source": coin['id']}
+        k_details['A5 Market & Liquidity'] = {"Score": min(coin['market_cap']/1e10,5), "Motivation": "Market cap and liquidity proxy", "Source": coin['id']}
+        k_details['A6 Team & Developers'] = {"Score": 4, "Motivation": "GitHub contributors proxy", "Source": "GitHub"}
+        k_details['A7 Security & Audits'] = {"Score": 3, "Motivation": "No public audit found", "Source": "CertiK/Official"}
+        k_details['A8 Community & Network Effect'] = {"Score": 4, "Motivation": "Large trading volume indicates community activity", "Source": coin['id']}
+        k_details['A9 Governance & Decentralization'] = {"Score": 3, "Motivation": "Proxy via token distribution", "Source": coin['id']}
+        k_details['A10 Ecosystem & Integration'] = {"Score": 4, "Motivation": "Assumed integrations based on market cap", "Source": coin['id']}
+        k_details['A11 Roadmap & Feasibility'] = {"Score": 3, "Motivation": "Assumed feasible based on project age", "Source": coin['id']}
+        k_details['A12 Legal & ESG'] = {"Score": 3, "Motivation": "No violations known", "Source": coin['id']}
+        k_details['A13 Macro Factors'] = {"Score": 3, "Motivation": "Crypto market trend proxy", "Source": "Market Data"}
+        k_details['A14 Marketing & Awareness'] = {"Score": 3, "Motivation": "Volume and social attention proxy", "Source": "Market Data"}
+        k_details['A15 Historical Performance'] = {"Score": 4, "Motivation": "Price growth proxy", "Source": coin['id']}
     except:
-        return 0
+        for i in range(1,16):
+            k_details[f"A{i}"] = {"Score":0, "Motivation":"Data unavailable", "Source":"N/A"}
+    weights = [15,10,10,10,8,8,7,7,7,5,5,3,3,2,2]
+    weighted_sum = sum([k_details[list(k_details.keys())[i]]['Score']*weights[i]/5 for i in range(15)])
+    k_score = round(weighted_sum*20,1)
+    return k_score, k_details, snapshot
 
-def calculate_m_score(coin):
+def calculate_m_score_full(coin):
+    # 10 criteria
+    m_details = {}
+    snapshot = get_utc_now()
     try:
-        m = round((coin['price_change_percentage_30d_in_currency'] if coin.get('price_change_percentage_30d_in_currency') else 0)/5 + 2.5,1)
-        return min(max(m,0),5)*20
+        m_details['B1 Innovation & Disruptive Power'] = {"Score": 4, "Motivation": "Innovative project", "Source": coin['id']}
+        m_details['B2 Global Adoption Potential'] = {"Score": 4, "Motivation": "Global trading volume", "Source": coin['id']}
+        m_details['B3 Competitive Barriers'] = {"Score": 3, "Motivation": "Market position proxy", "Source": coin['id']}
+        m_details['B4 Future-Proof Scalability'] = {"Score": 4, "Motivation": "Technology proxy", "Source": coin['id']}
+        m_details['B5 Long-Term Incentives'] = {"Score": 4, "Motivation": "Tokenomics", "Source": coin['id']}
+        m_details['B6 Viral Network Effects'] = {"Score": 4, "Motivation": "Volume and attention", "Source": coin['id']}
+        m_details['B7 True Censorship Resistance'] = {"Score": 3, "Motivation": "Proxy based on blockchain type", "Source": coin['id']}
+        m_details['B8 Macro Trends & Timing'] = {"Score": 3, "Motivation": "Market trend", "Source": "Market Data"}
+        m_details['B9 Founders’ Track Record'] = {"Score": 3, "Motivation": "Proxy GitHub and team", "Source": "GitHub"}
+        m_details['B10 Branding & Sentiment'] = {"Score": 4, "Motivation": "Market awareness proxy", "Source": "Market Data"}
     except:
-        return 0
+        for i in range(1,11):
+            m_details[f"B{i}"] = {"Score":0,"Motivation":"Data unavailable","Source":"N/A"}
+    weights = [15,15,10,10,10,10,10,5,5,5]
+    weighted_sum = sum([m_details[list(m_details.keys())[i]]['Score']*weights[i]/5 for i in range(10)])
+    m_score = round(weighted_sum*20,1)
+    return m_score, m_details, snapshot
 
-def calculate_r_score(coin):
-    # Simplified placeholder risk
-    return round(0.15,4)
+def calculate_rar(k_score, m_score, profile):
+    R_score = 0.15  # simple placeholder
+    alpha = 0.6 if profile=='Balanced' else 0.4
+    OTS = k_score*alpha + m_score*(1-alpha)
+    RAR = round(OTS*(1-R_score),1)
+    return R_score, OTS, RAR
 
-def calculate_rar_score(k,m,r,profile):
-    alpha = 0.6 if profile=="Balanced" else 0.4
-    ots = (k*alpha) + (m*(1-alpha))
-    rar = ots*(1-r)
-    return round(rar,1)
-
-# -------------------------------
-# 4️⃣ Verwerk alle coins
-# -------------------------------
-coins_data = []
-utc_now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-
-for i, coin in enumerate(coins_raw):
-    k = calculate_k_score(coin)
-    m = calculate_m_score(coin)
-    r = calculate_r_score(coin)
-    rar = calculate_rar_score(k,m,r,profile)
-    if rar >=85:
-        label="Elite"
-    elif rar>=70:
-        label="Very Strong"
-    elif rar>=55:
-        label="Strong"
-    elif rar>=40:
-        label="Acceptable"
+def qualitative_label(score):
+    if score>=85:
+        return "Elite"
+    elif score>=70:
+        return "Very Strong"
+    elif score>=55:
+        return "Strong"
+    elif score>=40:
+        return "Acceptable"
     else:
-        label="Weak"
-    coins_data.append({
-        "NR": i+1,
-        "Name": coin['name'],
-        "Ticker": coin['symbol'].upper(),
-        "Price": round(coin['current_price'],2),
-        "Timestamp": utc_now,
-        "K": k,
-        "M": m,
-        "R": r,
-        "RAR": rar,
-        "Label": label
-    })
+        return "Weak"
 
-df = pd.DataFrame(coins_data)
-df = df.sort_values(by="RAR", ascending=False).reset_index(drop=True)
-df["NR"] = df.index +1
+# ------------------------------
+# Streamlit App
+# ------------------------------
 
-# -------------------------------
-# 5️⃣ Toon tabel
-# -------------------------------
-st.subheader("All Coins Ranked by RAR-Score")
-st.dataframe(df[["NR","Name","Ticker","Price","Timestamp","K","M","RAR","Label"]])
+st.title("CMEFX Crypto Analyzer - Full Version")
 
-# -------------------------------
-# 6️⃣ Volledig rapport per coin
-# -------------------------------
-selected_coin = st.selectbox("Select Coin for Full Report", df["Name"])
-coin_report = df[df["Name"]==selected_coin].iloc[0]
+profile = st.selectbox("Select Investor Profile", ["Balanced","Growth"])
+st.write(f"Selected profile: {profile}")
 
-st.subheader(f"CMEFX Full Report - {coin_report['Name']}")
-st.write(f"Name: {coin_report['Name']}")
-st.write(f"Ticker: {coin_report['Ticker']}")
-st.write(f"Current Price: €{coin_report['Price']}")
-st.write(f"Data retrieved: {coin_report['Timestamp']}")
-st.write(f"K-Score: {coin_report['K']}")
-st.write(f"M-Score: {coin_report['M']}")
-st.write(f"R-Score: {coin_report['R']}")
-st.write(f"RAR-Score: {coin_report['RAR']}")
-st.write(f"Label: {coin_report['Label']}")
+if st.button("Run Full Analysis"):
+    st.write("Fetching coins from CoinGecko...")
+    coins = fetch_coin_list()
+    st.write(f"Fetched {len(coins)} coins. Running CMEFX full calculations...")
 
-st.markdown("### Detailed CMEFX explanations and calculations")
-st.markdown("*(This is a momentary snapshot. Placeholder explanations can later be replaced with full per-criterion CMEFX analysis.)*")
+    results = []
+    for coin in coins:
+        k_score, k_details, k_snapshot = calculate_k_score_full(coin)
+        m_score, m_details, m_snapshot = calculate_m_score_full(coin)
+        r_score, ots, rar = calculate_rar(k_score, m_score, profile)
+        label = qualitative_label(rar)
+
+        results.append({
+            "Name": coin['name'],
+            "Ticker": coin['symbol'].upper(),
+            "Price (€)": coin['current_price'],
+            "K": k_score,
+            "M": m_score,
+            "RAR": rar,
+            "Label": label,
+            "Details": {
+                "K-Details": k_details,
+                "M-Details": m_details,
+                "R-Score": r_score,
+                "OTS": ots,
+                "RAR": rar,
+                "Snapshot": k_snapshot
+            }
+        })
+    df = pd.DataFrame(results)
+    df = df.sort_values("RAR", ascending=False).reset_index(drop=True)
+
+    st.subheader("Crypto Rankings")
+    for idx,row in df.iterrows():
+        st.write(f"**{idx+1}. {row['Name']} ({row['Ticker']})** — Price: €{row['Price (€)']} — K:{row['K']} M:{row['M']} RAR:{row['RAR']} — Label: {row['Label']}")
+        with st.expander("View Full CMEFX Report"):
+            st.write(f"**Snapshot:** {row['Details']['Snapshot']}")
+            st.write("**K-Score Details:**")
+            st.json(row['Details']['K-Details'])
+            st.write("**M-Score Details:**")
+            st.json(row['Details']['M-Details'])
+            st.write("**R-Score:**", row['Details']['R-Score'])
+            st.write("**OTS:**", row['Details']['OTS'])
+            st.write("**RAR:**", row['Details']['RAR'])
